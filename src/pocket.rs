@@ -62,16 +62,7 @@ impl From<HttpError> for PocketError {
 }
 
 impl Error for PocketError {
-    fn description(&self) -> &str {
-        match *self {
-            PocketError::Http(ref e) => e.description(),
-            PocketError::Io(ref e) => e.description(),
-            PocketError::SerdeJson(ref e) => e.description(),
-            PocketError::Proto(..) => "protocol error"
-        }
-    }
-
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         match *self {
             PocketError::Http(ref e) => Some(e),
             PocketError::Io(ref e) => Some(e),
@@ -161,7 +152,7 @@ impl Pocket {
     }
 
     fn request<Req: Serialize>(&self, url: &str, request: &Req) -> PocketResult<String> {
-        let request = try!(serde_json::to_string(request));
+        let request = serde_json::to_string(request)?;
 
         let app_json = "application/json";
 
@@ -226,10 +217,10 @@ impl Pocket {
         let request = PocketAddRequest {
             consumer_key: &self.consumer_key,
             access_token: self.access_token.as_ref().unwrap(),
-            url: url,
-            title: title,
-            tags: tags,
-            tweet_id: tweet_id,
+            url,
+            title,
+            tags,
+            tweet_id,
         };
 
         self.request("https://getpocket.com/v3/add", &request).map(|_| ())

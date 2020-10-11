@@ -1,6 +1,6 @@
 [package]
 name = "feeds-to-pocket"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Francis Gagné <fragag1@gmail.com>"]
 description = "Sends items from your RSS and Atom feeds to your Pocket list."
 repository = "https://github.com/FraGag/feeds-to-pocket"
