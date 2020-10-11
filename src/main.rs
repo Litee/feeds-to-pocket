@@ -22,6 +22,7 @@ extern crate serde_json;
 extern crate serde_yaml;
 extern crate url;
 extern crate url_serde;
+extern crate chrono;
 
 mod pocket;
 
@@ -37,10 +38,12 @@ use clap::{App, Arg, ArgMatches, SubCommand};
 use reqwest::{Client, StatusCode};
 use reqwest::header::{self, HeaderValue};
 use url::Url;
+use chrono::Utc;
 
 use pocket::Pocket;
 
 fn main() {
+    println!("Feeds-to-Pocket v{} has started. Today is {}", package_version(), Utc::now());
     let matches = App::new("Feeds to Pocket")
         .author("Francis Gagné <fragag1@gmail.com>")
         .about("Sends items from your RSS and Atom feeds to your Pocket list.")
@@ -84,7 +87,11 @@ fn main() {
                 .takes_value(true))
             .arg(Arg::with_name(subcommands::add::args::FEED_URL)
                 .help("The URL of the feed to add.")
-                .required(true)))
+                .required(true))
+            .arg(Arg::with_name(subcommands::add::args::REQUIRED_WORDS)
+                .long("--required-words")
+                .help("A comma-separated list of words that must be present in the title to process feeds.")
+                .takes_value(true)))
         .subcommand(SubCommand::with_name(subcommands::remove::NAME)
             .about("Removes a feed from your feeds configuration.")
             .arg(Arg::with_name(subcommands::remove::args::FEED_URL)
@@ -95,7 +102,8 @@ fn main() {
     run(&matches).unwrap_or_else(|e| {
         let _ = writeln!(io::stderr(), "{}", e);
         process::exit(1);
-    })
+    });
+    println!("Work finished.\n");
 }
 
 // Constants for command-line arguments and subcommands
@@ -128,6 +136,7 @@ mod subcommands {
             pub const UNREAD: &'static str = "unread";
             pub const TAGS: &'static str = "tags";
             pub const FEED_URL: &'static str = "feed url";
+            pub const REQUIRED_WORDS: &'static str = "required-words";
         }
     }
 
@@ -138,6 +147,15 @@ mod subcommands {
             pub const FEED_URL: &'static str = "feed url";
         }
     }
+}
+
+pub mod built_info {
+    // The file has been placed there by the build script.
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
+}
+
+fn package_version() -> String {
+    return built_info::PKG_VERSION.to_string();
 }
 
 fn run(args: &ArgMatches) -> Result<(), ErrorWithContext> {
@@ -308,11 +326,18 @@ fn add(config: &mut Configuration, args: &ArgMatches) -> Result<(), ErrorWithCon
         }
     }
 
+    fn apply_required_words(feed: &mut FeedConfiguration, args: &ArgMatches) {
+        if let Some(required_words) = args.value_of(subcommands::add::args::REQUIRED_WORDS) {
+            feed.required_words = required_words.to_owned();
+        }
+    }
+
     let client = Client::new();
 
     let feed_url = args.value_of(subcommands::add::args::FEED_URL).unwrap();
     if let Some(feed) = config.feeds.iter_mut().find(|feed| feed.url == feed_url) {
         apply_tags(feed, args);
+        apply_required_words(feed, args);
         return Ok(());
     }
 
@@ -326,11 +351,13 @@ fn add(config: &mut Configuration, args: &ArgMatches) -> Result<(), ErrorWithCon
     let mut feed = FeedConfiguration {
         url: String::from(feed_url),
         tags: String::new(),
+        required_words: String::new(),
         processed_entries: vec![],
         last_modified: None,
         last_e_tag: None,
     };
     apply_tags(&mut feed, args);
+    apply_required_words(&mut feed, args);
     config.feeds.push(feed);
 
     let feed = config.feeds.last_mut().unwrap();
@@ -376,14 +403,18 @@ fn process_feed(feed: &mut FeedConfiguration, mut pocket: Option<&mut Pocket>, c
         let parsed_feed = try_with_context!(body.parse::<Feed>(),
             format!("failed to parse feed at {url} as either RSS or Atom", url=feed.url));
 
+        let required_words: Vec<String> = feed.required_words
+            .split(",")
+            .map(|word| word.trim().to_lowercase().to_owned())
+            .collect();
         let (mut rss_entries, mut atom_entries);
         let entries: &mut Iterator<Item=&str> = match parsed_feed {
             Feed::RSS(ref rss) => {
-                rss_entries = rss.items().iter().rev().flat_map(|item| item.link());
+                rss_entries = rss.items().iter().rev().filter(|item| required_words.iter().any(|word| item.title().unwrap_or("").to_lowercase().contains(word))).flat_map(|item| item.link());
                 &mut rss_entries
             }
             Feed::Atom(ref atom) => {
-                atom_entries = atom.entries().into_iter().rev().flat_map(|entry| entry.links()).filter_map(|link| {
+                atom_entries = atom.entries().into_iter().rev().filter(|item| required_words.iter().any(|word| item.title().to_lowercase().contains(word))).flat_map(|entry| entry.links()).filter_map(|link| {
                     match link.rel() {
                         // Only push links with an "alternate" relation type.
                         "alternate" | "http://www.iana.org/assignments/relation/alternate" => Some(link.href()),
@@ -517,6 +548,9 @@ struct FeedConfiguration {
     #[serde(skip_serializing_if="Vec::is_empty")]
     #[serde(default)]
     processed_entries: Vec<String>,
+    #[serde(skip_serializing_if="str::is_empty")]
+    #[serde(default)]
+    required_words: String,
     #[serde(skip_serializing_if="Option::is_none")]
     last_modified: Option<String>,
     #[serde(skip_serializing_if="Option::is_none")]

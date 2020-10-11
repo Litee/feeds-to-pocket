@@ -1,6 +1,6 @@
 [package]
 name = "feeds-to-pocket"
-version = "0.1.6"
+version = "0.2.0"
 authors = ["Francis Gagné <fragag1@gmail.com>"]
 description = "Sends items from your RSS and Atom feeds to your Pocket list."
 repository = "https://github.com/FraGag/feeds-to-pocket"
@@ -8,6 +8,7 @@ readme = "README.md"
 keywords = ["atom", "feed", "pocket", "rss", "syndication"]
 license = "MIT/Apache-2.0"
 exclude = [".travis.yml"]
+build = "build.rs"
 
 [dependencies]
 atom_syndication = "0.6.0"
@@ -21,3 +22,7 @@ serde_json = "1.0.33"
 serde_yaml = "0.8.7"
 url = "1.7.2"
 url_serde = "0.2.0"
+chrono = "0.4.19"
+
+[build-dependencies]
+built = "0.4.3"
